@@ -5,6 +5,8 @@ Copy trading coordinator that mirrors trades from watched wallets.
 from __future__ import annotations
 
 import asyncio
+import json
+from pathlib import Path
 from time import monotonic
 
 import uvloop
@@ -50,6 +52,9 @@ class CopyTrader:
         queue_size: int = 100,
         fast_buy: bool = True,
         fast_buy_min_amount_out: int = 1,
+        worker_count: int = 2,
+        positions_cache_path: str | None = None,
+        positions_flush_interval: float = 1.0,
         geyser_endpoint: str | None = None,
         geyser_api_token: str | None = None,
         geyser_auth_type: str = "x-token",
@@ -86,7 +91,12 @@ class CopyTrader:
         self.queue_size = queue_size
         self.fast_buy = fast_buy
         self.fast_buy_min_amount_out = max(1, fast_buy_min_amount_out)
+        self.worker_count = max(1, worker_count)
         self.trader_addresses = trader_addresses or []
+        self.positions_flush_interval = positions_flush_interval
+        self.positions_cache_path = self._resolve_positions_cache_path(
+            positions_cache_path
+        )
 
         self.buyer = PlatformAwareBuyer(
             self.solana_client,
@@ -128,25 +138,32 @@ class CopyTrader:
         )
         self._processed_signals: dict[str, float] = {}
         self.traded_mints: set = set()
-        self.open_positions: set[Pubkey] = set()
+        self.open_positions: set[Pubkey] = self._load_positions_cache()
+        self._positions_dirty = False
+        self._positions_flush_task: asyncio.Task | None = None
 
     async def start(self) -> None:
         """Start copy trading."""
         logger.info(f"Starting copy trader on {self.platform.value}")
         logger.info(f"Watching traders: {sorted(self.trader_addresses)}")
         logger.info(f"Copy buys: {self.copy_buys} | Copy sells: {self.copy_sells}")
+        if self.open_positions:
+            logger.info(
+                f"Loaded {len(self.open_positions)} cached position(s) from disk"
+            )
 
-        processor_task = asyncio.create_task(self._process_trade_queue())
+        processor_tasks = [
+            asyncio.create_task(self._process_trade_queue(worker_id))
+            for worker_id in range(self.worker_count)
+        ]
         try:
             await self.trade_listener.listen_for_trades(self._queue_trade_signal)
         except Exception:
             logger.exception("Copy trading stopped due to error")
         finally:
-            processor_task.cancel()
-            try:
-                await processor_task
-            except asyncio.CancelledError:
-                pass
+            for task in processor_tasks:
+                task.cancel()
+            await asyncio.gather(*processor_tasks, return_exceptions=True)
             await self._cleanup_resources()
             logger.info("Copy trader shutdown complete")
 
@@ -172,8 +189,9 @@ class CopyTrader:
         except asyncio.QueueFull:
             logger.warning("Copy trade queue full, dropping signal")
 
-    async def _process_trade_queue(self) -> None:
+    async def _process_trade_queue(self, worker_id: int) -> None:
         """Process queued trade signals sequentially."""
+        _ = worker_id
         while True:
             try:
                 signal = await self._signal_queue.get()
@@ -210,7 +228,7 @@ class CopyTrader:
         buy_result: TradeResult = await self.buyer.execute(signal.token_info)
         if buy_result.success:
             self.traded_mints.add(signal.token_info.mint)
-            self.open_positions.add(signal.token_info.mint)
+            self._record_position_open(signal.token_info.mint)
             logger.info(
                 f"Copied BUY succeeded for {signal.token_info.mint} "
                 f"(tx: {buy_result.tx_signature})"
@@ -249,7 +267,7 @@ class CopyTrader:
                 f"Copied SELL succeeded for {signal.token_info.mint} "
                 f"(tx: {sell_result.tx_signature})"
             )
-            self.open_positions.discard(signal.token_info.mint)
+            self._record_position_close(signal.token_info.mint)
             await handle_cleanup_after_sell(
                 self.solana_client,
                 self.wallet,
@@ -281,6 +299,7 @@ class CopyTrader:
                 logger.exception("Error during copy trader cleanup")
 
         await self.solana_client.close()
+        await self._flush_positions_cache(force=True)
 
     def _build_signal_key(self, signal: TradeSignal) -> str:
         """Build a unique key for deduping trade signals."""
@@ -297,3 +316,83 @@ class CopyTrader:
         ]
         for key in expired:
             self._processed_signals.pop(key, None)
+
+    def _resolve_positions_cache_path(self, cache_path: str | None) -> Path:
+        """Resolve the positions cache path.
+
+        Args:
+            cache_path: Optional explicit cache path
+
+        Returns:
+            Path to the cache file
+        """
+        if cache_path:
+            return Path(cache_path)
+        return Path("state") / "copy_trader_positions.json"
+
+    def _load_positions_cache(self) -> set[Pubkey]:
+        """Load open positions from disk cache."""
+        if not self.positions_cache_path.exists():
+            return set()
+
+        try:
+            raw = self.positions_cache_path.read_text(encoding="utf-8")
+            data = json.loads(raw)
+            if isinstance(data, dict):
+                positions = data.get("positions", [])
+            elif isinstance(data, list):
+                positions = data
+            else:
+                positions = []
+            result = set()
+            for mint_str in positions:
+                if isinstance(mint_str, str):
+                    try:
+                        result.add(Pubkey.from_string(mint_str))
+                    except Exception:
+                        continue
+            return result
+        except Exception:
+            logger.exception("Failed to load positions cache")
+            return set()
+
+    def _record_position_open(self, mint: Pubkey) -> None:
+        """Record an opened position and schedule a cache flush."""
+        self.open_positions.add(mint)
+        self._schedule_positions_flush()
+
+    def _record_position_close(self, mint: Pubkey) -> None:
+        """Record a closed position and schedule a cache flush."""
+        self.open_positions.discard(mint)
+        self._schedule_positions_flush()
+
+    def _schedule_positions_flush(self) -> None:
+        """Schedule a background flush for positions cache."""
+        self._positions_dirty = True
+        if self._positions_flush_task and not self._positions_flush_task.done():
+            return
+        self._positions_flush_task = asyncio.create_task(
+            self._flush_positions_cache()
+        )
+
+    async def _flush_positions_cache(self, force: bool = False) -> None:
+        """Flush positions cache to disk."""
+        if not force:
+            await asyncio.sleep(self.positions_flush_interval)
+
+        if not self._positions_dirty and not force:
+            return
+
+        self._positions_dirty = False
+        await asyncio.to_thread(self._persist_positions_sync)
+
+    def _persist_positions_sync(self) -> None:
+        """Persist positions cache to disk (sync)."""
+        try:
+            self.positions_cache_path.parent.mkdir(parents=True, exist_ok=True)
+            payload = sorted(str(mint) for mint in self.open_positions)
+            self.positions_cache_path.write_text(
+                json.dumps(payload), encoding="utf-8"
+            )
+        except Exception:
+            logger.exception("Failed to persist positions cache")

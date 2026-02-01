@@ -68,6 +68,8 @@ class CopyTradeGeyserListener(BaseTradeListener):
         if not self.program_id_to_parser:
             raise ValueError("No trade parsers available for copy trading")
 
+        self.program_ids = sorted(self.program_id_to_parser.keys())
+
     async def listen_for_trades(
         self,
         trade_callback: Callable[[TradeSignal], Awaitable[None]],
@@ -129,10 +131,14 @@ class CopyTradeGeyserListener(BaseTradeListener):
         """Create a subscription request for watched traders."""
         request = geyser_pb2.SubscribeRequest()
 
+        filter_index = 0
         for trader in self.trader_addresses:
-            filter_name = f"copy_trader_{trader}"
-            request.transactions[filter_name].account_include.append(trader)
-            request.transactions[filter_name].failed = False
+            for program_id in self.program_ids:
+                filter_name = f"copy_trader_{filter_index}"
+                filter_index += 1
+                request.transactions[filter_name].account_include.append(trader)
+                request.transactions[filter_name].account_required.append(program_id)
+                request.transactions[filter_name].failed = False
 
         request.commitment = geyser_pb2.CommitmentLevel.PROCESSED
         return request

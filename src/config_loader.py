@@ -85,6 +85,27 @@ CONFIG_VALIDATION_RULES = [
         float("inf"),
         "copy_trader.buy_amount must be a positive number",
     ),
+    (
+        "copy_trader.fast_buy_min_amount_out",
+        int,
+        1,
+        float("inf"),
+        "copy_trader.fast_buy_min_amount_out must be a positive integer",
+    ),
+    (
+        "copy_trader.worker_count",
+        int,
+        1,
+        32,
+        "copy_trader.worker_count must be between 1 and 32",
+    ),
+    (
+        "copy_trader.positions_flush_interval",
+        (int, float),
+        0,
+        60,
+        "copy_trader.positions_flush_interval must be between 0 and 60 seconds",
+    ),
 ]
 
 # Valid values for enum-like fields

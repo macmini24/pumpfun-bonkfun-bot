@@ -71,6 +71,9 @@ async def start_bot(config_path: str):
 
         copy_cfg = cfg.get("copy_trader", {})
         try:
+            positions_cache_path = copy_cfg.get(
+                "positions_cache_path", f"state/{cfg['name']}_positions.json"
+            )
             trader = CopyTrader(
                 rpc_endpoint=cfg["rpc_endpoint"],
                 wss_endpoint=cfg["wss_endpoint"],
@@ -87,6 +90,11 @@ async def start_bot(config_path: str):
                 queue_size=copy_cfg.get("queue_size", 100),
                 fast_buy=copy_cfg.get("fast_buy", True),
                 fast_buy_min_amount_out=copy_cfg.get("fast_buy_min_amount_out", 1),
+                worker_count=copy_cfg.get("worker_count", 2),
+                positions_cache_path=positions_cache_path,
+                positions_flush_interval=copy_cfg.get(
+                    "positions_flush_interval", 1.0
+                ),
                 geyser_endpoint=cfg.get("geyser", {}).get("endpoint"),
                 geyser_api_token=cfg.get("geyser", {}).get("api_token"),
                 geyser_auth_type=cfg.get("geyser", {}).get("auth_type", "x-token"),

@@ -29,6 +29,9 @@ copy_trader:
   copy_sells: true
   dedupe_window_seconds: 30
   queue_size: 100
+  worker_count: 2 # Increase for more parallel trade processing
+  positions_cache_path: "state/bot-copy-trader_positions.json"
+  positions_flush_interval: 1.0
 
 # Geyser configuration (optional - required if listener_type = "geyser")
 geyser:
