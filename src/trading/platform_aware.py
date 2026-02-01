@@ -30,8 +30,23 @@ class PlatformAwareBuyer(Trader):
         max_retries: int = 5,
         extreme_fast_token_amount: int = 0,
         extreme_fast_mode: bool = False,
+        fast_buy: bool = False,
+        fast_buy_min_amount_out: int = 1,
     ):
-        """Initialize platform-aware token buyer."""
+        """Initialize platform-aware token buyer.
+
+        Args:
+            client: Solana RPC client
+            wallet: Wallet instance
+            priority_fee_manager: Priority fee manager
+            amount: Amount of SOL to spend
+            slippage: Allowed slippage percentage
+            max_retries: Maximum retries for transaction submission
+            extreme_fast_token_amount: Token amount to assume in extreme fast mode
+            extreme_fast_mode: Skip pool stabilization + price RPC
+            fast_buy: Skip price RPC and use minimal token out
+            fast_buy_min_amount_out: Minimum tokens out in raw units
+        """
         self.client = client
         self.wallet = wallet
         self.priority_fee_manager = priority_fee_manager
@@ -40,6 +55,8 @@ class PlatformAwareBuyer(Trader):
         self.max_retries = max_retries
         self.extreme_fast_mode = extreme_fast_mode
         self.extreme_fast_token_amount = extreme_fast_token_amount
+        self.fast_buy = fast_buy
+        self.fast_buy_min_amount_out = max(1, fast_buy_min_amount_out)
 
     async def execute(self, token_info: TokenInfo) -> TradeResult:
         """Execute buy operation using platform-specific implementations."""
@@ -59,6 +76,9 @@ class PlatformAwareBuyer(Trader):
                 # Skip the wait and directly calculate the amount
                 token_amount = self.extreme_fast_token_amount
                 token_price_sol = self.amount / token_amount if token_amount > 0 else 0
+            elif self.fast_buy:
+                token_amount = None
+                token_price_sol = None
             else:
                 # Get pool address based on platform using platform-agnostic method
                 pool_address = self._get_pool_address(token_info, address_provider)
@@ -70,8 +90,18 @@ class PlatformAwareBuyer(Trader):
                 )
 
             # Calculate minimum token amount with slippage
-            minimum_token_amount = token_amount * (1 - self.slippage)
-            minimum_token_amount_raw = int(minimum_token_amount * 10**TOKEN_DECIMALS)
+            if self.extreme_fast_mode:
+                minimum_token_amount = token_amount * (1 - self.slippage)
+                minimum_token_amount_raw = int(
+                    minimum_token_amount * 10**TOKEN_DECIMALS
+                )
+            elif self.fast_buy:
+                minimum_token_amount_raw = self.fast_buy_min_amount_out
+            else:
+                minimum_token_amount = token_amount * (1 - self.slippage)
+                minimum_token_amount_raw = int(
+                    minimum_token_amount * 10**TOKEN_DECIMALS
+                )
 
             # Calculate maximum SOL to spend with slippage
             max_amount_lamports = int(amount_lamports * (1 + self.slippage))
@@ -90,9 +120,16 @@ class PlatformAwareBuyer(Trader):
                 token_info, self.wallet.pubkey, address_provider
             )
 
-            logger.info(
-                f"Buying {token_amount:.6f} tokens at {token_price_sol:.8f} SOL per token on {token_info.platform.value}"
-            )
+            if self.fast_buy:
+                logger.info(
+                    "Fast buy enabled: skipping price RPC, "
+                    f"min out {minimum_token_amount_raw} (raw units)"
+                )
+            else:
+                logger.info(
+                    f"Buying {token_amount:.6f} tokens at {token_price_sol:.8f} SOL per "
+                    f"token on {token_info.platform.value}"
+                )
             logger.info(
                 f"Total cost: {self.amount:.6f} SOL (max: {max_amount_lamports / LAMPORTS_PER_SOL:.6f} SOL)"
             )
@@ -158,6 +195,8 @@ class PlatformAwareSeller(Trader):
         priority_fee_manager: PriorityFeeManager,
         slippage: float = 0.25,
         max_retries: int = 5,
+        fast_sell: bool = False,
+        fast_sell_min_amount_out: int = 1,
     ):
         """Initialize platform-aware token seller."""
         self.client = client
@@ -165,6 +204,8 @@ class PlatformAwareSeller(Trader):
         self.priority_fee_manager = priority_fee_manager
         self.slippage = slippage
         self.max_retries = max_retries
+        self.fast_sell = fast_sell
+        self.fast_sell_min_amount_out = max(1, fast_sell_min_amount_out)
 
     async def execute(self, token_info: TokenInfo) -> TradeResult:
         """Execute sell operation using platform-specific implementations."""
@@ -197,25 +238,37 @@ class PlatformAwareSeller(Trader):
                     error_message="No tokens to sell",
                 )
 
-            # Get pool address and current price using platform-agnostic method
-            pool_address = self._get_pool_address(token_info, address_provider)
-            token_price_sol = await curve_manager.calculate_price(pool_address)
+            if self.fast_sell:
+                token_price_sol = None
+                min_sol_output = self.fast_sell_min_amount_out
+                logger.info(
+                    "Fast sell enabled: skipping price RPC, "
+                    f"min out {min_sol_output} lamports"
+                )
+            else:
+                # Get pool address and current price using platform-agnostic method
+                pool_address = self._get_pool_address(token_info, address_provider)
+                token_price_sol = await curve_manager.calculate_price(pool_address)
 
-            logger.info(f"Price per Token: {token_price_sol:.8f} SOL")
+                logger.info(f"Price per Token: {token_price_sol:.8f} SOL")
 
-            # Calculate minimum SOL output with slippage
-            expected_sol_output = float(token_balance_decimal) * float(token_price_sol)
-            min_sol_output = int(
-                (expected_sol_output * (1 - self.slippage)) * LAMPORTS_PER_SOL
-            )
+                # Calculate minimum SOL output with slippage
+                expected_sol_output = float(token_balance_decimal) * float(
+                    token_price_sol
+                )
+                min_sol_output = int(
+                    (expected_sol_output * (1 - self.slippage)) * LAMPORTS_PER_SOL
+                )
 
-            logger.info(
-                f"Selling {token_balance_decimal} tokens on {token_info.platform.value}"
-            )
-            logger.info(f"Expected SOL output: {expected_sol_output:.8f} SOL")
-            logger.info(
-                f"Minimum SOL output (with {self.slippage * 100}% slippage): {min_sol_output / LAMPORTS_PER_SOL:.8f} SOL"
-            )
+                logger.info(
+                    f"Selling {token_balance_decimal} tokens on {token_info.platform.value}"
+                )
+                logger.info(f"Expected SOL output: {expected_sol_output:.8f} SOL")
+                logger.info(
+                    "Minimum SOL output (with "
+                    f"{self.slippage * 100}% slippage): "
+                    f"{min_sol_output / LAMPORTS_PER_SOL:.8f} SOL"
+                )
 
             # Build sell instructions using platform-specific builder
             instructions = await instruction_builder.build_sell_instruction(

@@ -1,0 +1,75 @@
+# Copy trader configuration example.
+# Mirrors trades from specific wallets on the selected platform.
+
+# Bot identification and connection settings
+name: "bot-copy-trader"
+env_file: ".env"
+rpc_endpoint: "${SOLANA_NODE_RPC_ENDPOINT}"
+wss_endpoint: "${SOLANA_NODE_WSS_ENDPOINT}"
+private_key: "${SOLANA_PRIVATE_KEY}"
+
+enabled: false
+separate_process: true
+
+# Options: "pump_fun" (default), "lets_bonk"
+platform: "pump_fun"
+mode: "copy_trader"
+
+# Copy trading settings
+copy_trader:
+  # Listener type for trade monitoring (recommended): "geyser"
+  listener_type: "geyser"
+  trader_addresses:
+    - "REPLACE_WITH_TRADER_ADDRESS_1"
+    - "REPLACE_WITH_TRADER_ADDRESS_2"
+  buy_amount: 0.0001 # SOL amount to spend per copied buy
+  fast_buy: true # Skip price RPC for fastest execution
+  fast_buy_min_amount_out: 1 # Minimum token out in raw units
+  fast_sell: true # Skip price RPC for fastest execution
+  fast_sell_min_amount_out: 1 # Minimum SOL out in lamports
+  copy_buys: true
+  copy_sells: true
+  dedupe_window_seconds: 30
+  queue_size: 100
+  worker_count: 2 # Increase for more parallel trade processing
+  positions_cache_path: "state/bot-copy-trader_positions.json"
+  positions_flush_interval: 1.0
+
+# Geyser configuration (optional - required if listener_type = "geyser")
+geyser:
+  endpoint: "${GEYSER_ENDPOINT}"
+  api_token: "${GEYSER_API_TOKEN}"
+  auth_type: "x-token" # or "basic"
+
+# Trading parameters (used for slippage + defaults)
+trade:
+  buy_amount: 0.0001
+  buy_slippage: 0.3
+  sell_slippage: 0.3
+
+# Priority fee configuration
+priority_fees:
+  enable_dynamic: false
+  enable_fixed: true
+  fixed_amount: 200_000
+  extra_percentage: 0.0
+  hard_cap: 200_000
+
+# Retry settings
+retries:
+  max_attempts: 3
+
+# Cleanup settings
+cleanup:
+  mode: "post_session"
+  force_close_with_burn: false
+  with_priority_fee: false
+
+# Filters (not used in copy_trader mode, kept for consistency)
+filters:
+  match_string: null
+  bro_address: null
+  listener_type: "blocks"
+  max_token_age: 0.001
+  marry_mode: false
+  yolo_mode: false

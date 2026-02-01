@@ -14,6 +14,7 @@ from config_loader import (
     print_config_summary,
     validate_platform_listener_combination,
 )
+from trading.copy_trader import CopyTrader
 from trading.universal_trader import UniversalTrader
 from utils.logger import setup_file_logging
 
@@ -54,6 +55,80 @@ async def start_bot(config_path: str):
             return
     except Exception as e:
         logging.exception(f"Could not validate platform support: {e}")
+        return
+
+    mode = cfg.get("mode", "sniper")
+    if mode == "copy_trader":
+        listener_type = cfg["copy_trader"]["listener_type"]
+        if not validate_platform_listener_combination(platform, listener_type):
+            from config_loader import get_supported_listeners_for_platform
+
+            supported = get_supported_listeners_for_platform(platform)
+            logging.error(
+                f"Listener '{listener_type}' is not compatible with platform '{platform.value}'. Supported listeners: {supported}"
+            )
+            return
+
+        copy_cfg = cfg.get("copy_trader", {})
+        try:
+            positions_cache_path = copy_cfg.get(
+                "positions_cache_path", f"state/{cfg['name']}_positions.json"
+            )
+            trader = CopyTrader(
+                rpc_endpoint=cfg["rpc_endpoint"],
+                wss_endpoint=cfg["wss_endpoint"],
+                private_key=cfg["private_key"],
+                platform=platform,
+                buy_amount=copy_cfg.get("buy_amount", cfg["trade"]["buy_amount"]),
+                buy_slippage=cfg["trade"]["buy_slippage"],
+                sell_slippage=cfg["trade"]["sell_slippage"],
+                listener_type=listener_type,
+                trader_addresses=copy_cfg.get("trader_addresses", []),
+                copy_buys=copy_cfg.get("copy_buys", True),
+                copy_sells=copy_cfg.get("copy_sells", True),
+                dedupe_window_seconds=copy_cfg.get("dedupe_window_seconds", 30),
+                queue_size=copy_cfg.get("queue_size", 100),
+                fast_buy=copy_cfg.get("fast_buy", True),
+                fast_buy_min_amount_out=copy_cfg.get("fast_buy_min_amount_out", 1),
+                fast_sell=copy_cfg.get("fast_sell", True),
+                fast_sell_min_amount_out=copy_cfg.get("fast_sell_min_amount_out", 1),
+                worker_count=copy_cfg.get("worker_count", 2),
+                positions_cache_path=positions_cache_path,
+                positions_flush_interval=copy_cfg.get(
+                    "positions_flush_interval", 1.0
+                ),
+                geyser_endpoint=cfg.get("geyser", {}).get("endpoint"),
+                geyser_api_token=cfg.get("geyser", {}).get("api_token"),
+                geyser_auth_type=cfg.get("geyser", {}).get("auth_type", "x-token"),
+                enable_dynamic_priority_fee=cfg.get("priority_fees", {}).get(
+                    "enable_dynamic", False
+                ),
+                enable_fixed_priority_fee=cfg.get("priority_fees", {}).get(
+                    "enable_fixed", True
+                ),
+                fixed_priority_fee=cfg.get("priority_fees", {}).get(
+                    "fixed_amount", 500000
+                ),
+                extra_priority_fee=cfg.get("priority_fees", {}).get(
+                    "extra_percentage", 0.0
+                ),
+                hard_cap_prior_fee=cfg.get("priority_fees", {}).get(
+                    "hard_cap", 500000
+                ),
+                max_retries=cfg.get("retries", {}).get("max_attempts", 10),
+                cleanup_mode=cfg.get("cleanup", {}).get("mode", "disabled"),
+                cleanup_force_close_with_burn=cfg.get("cleanup", {}).get(
+                    "force_close_with_burn", False
+                ),
+                cleanup_with_priority_fee=cfg.get("cleanup", {}).get(
+                    "with_priority_fee", False
+                ),
+            )
+
+            await trader.start()
+        except Exception as e:
+            logging.exception(f"Failed to initialize or start copy trader: {e}")
+            raise
         return
 
     # Validate listener compatibility
@@ -191,7 +266,12 @@ def run_all_bots():
                     continue
 
                 # Validate listener compatibility
-                listener_type = cfg["filters"]["listener_type"]
+                mode = cfg.get("mode", "sniper")
+                if mode == "copy_trader":
+                    listener_type = cfg["copy_trader"]["listener_type"]
+                else:
+                    listener_type = cfg["filters"]["listener_type"]
+
                 if not validate_platform_listener_combination(platform, listener_type):
                     from config_loader import get_supported_listeners_for_platform
 
