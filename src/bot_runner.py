@@ -85,6 +85,8 @@ async def start_bot(config_path: str):
                 copy_sells=copy_cfg.get("copy_sells", True),
                 dedupe_window_seconds=copy_cfg.get("dedupe_window_seconds", 30),
                 queue_size=copy_cfg.get("queue_size", 100),
+                fast_buy=copy_cfg.get("fast_buy", True),
+                fast_buy_min_amount_out=copy_cfg.get("fast_buy_min_amount_out", 1),
                 geyser_endpoint=cfg.get("geyser", {}).get("endpoint"),
                 geyser_api_token=cfg.get("geyser", {}).get("api_token"),
                 geyser_auth_type=cfg.get("geyser", {}).get("auth_type", "x-token"),

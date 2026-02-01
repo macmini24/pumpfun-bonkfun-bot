@@ -8,6 +8,7 @@ import asyncio
 from time import monotonic
 
 import uvloop
+from solders.pubkey import Pubkey
 
 from cleanup.modes import (
     handle_cleanup_after_failure,
@@ -17,10 +18,9 @@ from cleanup.modes import (
 from core.client import SolanaClient
 from core.priority_fee.manager import PriorityFeeManager
 from core.wallet import Wallet
-from interfaces.core import Platform, TokenInfo
+from interfaces.core import Platform
 from monitoring.trade_listener import TradeSignal, TradeSide
 from monitoring.trade_listener_factory import TradeListenerFactory
-from platforms import get_platform_implementations
 from trading.base import TradeResult
 from trading.platform_aware import PlatformAwareBuyer, PlatformAwareSeller
 from utils.logger import get_logger
@@ -48,6 +48,8 @@ class CopyTrader:
         copy_sells: bool = True,
         dedupe_window_seconds: int = 30,
         queue_size: int = 100,
+        fast_buy: bool = True,
+        fast_buy_min_amount_out: int = 1,
         geyser_endpoint: str | None = None,
         geyser_api_token: str | None = None,
         geyser_auth_type: str = "x-token",
@@ -82,6 +84,8 @@ class CopyTrader:
         self.copy_sells = copy_sells
         self.dedupe_window_seconds = dedupe_window_seconds
         self.queue_size = queue_size
+        self.fast_buy = fast_buy
+        self.fast_buy_min_amount_out = max(1, fast_buy_min_amount_out)
         self.trader_addresses = trader_addresses or []
 
         self.buyer = PlatformAwareBuyer(
@@ -93,6 +97,8 @@ class CopyTrader:
             max_retries,
             extreme_fast_token_amount=0,
             extreme_fast_mode=False,
+            fast_buy=self.fast_buy,
+            fast_buy_min_amount_out=self.fast_buy_min_amount_out,
         )
 
         self.seller = PlatformAwareSeller(
@@ -122,6 +128,7 @@ class CopyTrader:
         )
         self._processed_signals: dict[str, float] = {}
         self.traded_mints: set = set()
+        self.open_positions: set[Pubkey] = set()
 
     async def start(self) -> None:
         """Start copy trading."""
@@ -203,6 +210,7 @@ class CopyTrader:
         buy_result: TradeResult = await self.buyer.execute(signal.token_info)
         if buy_result.success:
             self.traded_mints.add(signal.token_info.mint)
+            self.open_positions.add(signal.token_info.mint)
             logger.info(
                 f"Copied BUY succeeded for {signal.token_info.mint} "
                 f"(tx: {buy_result.tx_signature})"
@@ -223,17 +231,11 @@ class CopyTrader:
 
     async def _handle_copy_sell(self, signal: TradeSignal) -> None:
         """Execute a copy sell based on a detected trade."""
-        token_balance = await self._get_token_balance(signal.token_info)
-        if token_balance == 0:
+        if signal.token_info.mint not in self.open_positions:
             logger.info(
                 f"No position for {signal.token_info.mint}. Ignoring sell signal."
             )
             return
-        if token_balance is None:
-            logger.warning(
-                f"Could not determine balance for {signal.token_info.mint}. "
-                "Attempting sell anyway."
-            )
 
         logger.info(
             f"Copying SELL from {signal.trader} for {signal.token_info.mint}"
@@ -247,6 +249,7 @@ class CopyTrader:
                 f"Copied SELL succeeded for {signal.token_info.mint} "
                 f"(tx: {sell_result.tx_signature})"
             )
+            self.open_positions.discard(signal.token_info.mint)
             await handle_cleanup_after_sell(
                 self.solana_client,
                 self.wallet,
@@ -260,30 +263,6 @@ class CopyTrader:
             logger.error(
                 f"Copied SELL failed for {signal.token_info.mint}: {sell_result.error_message}"
             )
-
-    async def _get_token_balance(self, token_info: TokenInfo) -> int | None:
-        """Fetch token account balance for the bot's wallet.
-
-        Args:
-            token_info: Token information for the trade
-
-        Returns:
-            Token balance in raw units, or None if unavailable
-        """
-        try:
-            implementations = get_platform_implementations(
-                self.platform, self.solana_client
-            )
-            address_provider = implementations.address_provider
-            user_token_account = address_provider.derive_user_token_account(
-                self.wallet.pubkey, token_info.mint
-            )
-            return await self.solana_client.get_token_account_balance(user_token_account)
-        except Exception as exc:
-            logger.warning(
-                f"Failed to fetch token balance for {token_info.mint}: {exc}"
-            )
-            return None
 
     async def _cleanup_resources(self) -> None:
         """Perform post-session cleanup."""

@@ -78,6 +78,8 @@ Copy trading mirrors buy/sell actions from specific wallets.
 2. Set `mode: "copy_trader"` and add your `copy_trader.trader_addresses`.
 3. Use the Geyser listener for copy trading (lowest latency, requires a
    Geyser endpoint).
+4. Copy sells are only attempted for positions opened by this bot instance
+   (fast path with no extra RPC calls).
 
 Example:
 ```yaml
@@ -88,6 +90,8 @@ copy_trader:
     - "REPLACE_WITH_TRADER_ADDRESS_1"
     - "REPLACE_WITH_TRADER_ADDRESS_2"
   buy_amount: 0.0001
+  fast_buy: true
+  fast_buy_min_amount_out: 1
   copy_buys: true
   copy_sells: true
 ```
