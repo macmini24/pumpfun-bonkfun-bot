@@ -17,8 +17,8 @@ mode: "copy_trader"
 
 # Copy trading settings
 copy_trader:
-  # Listener type for trade monitoring: "blocks" or "geyser"
-  listener_type: "blocks"
+  # Listener type for trade monitoring (recommended): "geyser"
+  listener_type: "geyser"
   trader_addresses:
     - "REPLACE_WITH_TRADER_ADDRESS_1"
     - "REPLACE_WITH_TRADER_ADDRESS_2"

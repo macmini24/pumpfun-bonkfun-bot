@@ -17,9 +17,10 @@ from cleanup.modes import (
 from core.client import SolanaClient
 from core.priority_fee.manager import PriorityFeeManager
 from core.wallet import Wallet
-from interfaces.core import Platform
+from interfaces.core import Platform, TokenInfo
 from monitoring.trade_listener import TradeSignal, TradeSide
 from monitoring.trade_listener_factory import TradeListenerFactory
+from platforms import get_platform_implementations
 from trading.base import TradeResult
 from trading.platform_aware import PlatformAwareBuyer, PlatformAwareSeller
 from utils.logger import get_logger
@@ -222,6 +223,18 @@ class CopyTrader:
 
     async def _handle_copy_sell(self, signal: TradeSignal) -> None:
         """Execute a copy sell based on a detected trade."""
+        token_balance = await self._get_token_balance(signal.token_info)
+        if token_balance == 0:
+            logger.info(
+                f"No position for {signal.token_info.mint}. Ignoring sell signal."
+            )
+            return
+        if token_balance is None:
+            logger.warning(
+                f"Could not determine balance for {signal.token_info.mint}. "
+                "Attempting sell anyway."
+            )
+
         logger.info(
             f"Copying SELL from {signal.trader} for {signal.token_info.mint}"
         )
@@ -247,6 +260,30 @@ class CopyTrader:
             logger.error(
                 f"Copied SELL failed for {signal.token_info.mint}: {sell_result.error_message}"
             )
+
+    async def _get_token_balance(self, token_info: TokenInfo) -> int | None:
+        """Fetch token account balance for the bot's wallet.
+
+        Args:
+            token_info: Token information for the trade
+
+        Returns:
+            Token balance in raw units, or None if unavailable
+        """
+        try:
+            implementations = get_platform_implementations(
+                self.platform, self.solana_client
+            )
+            address_provider = implementations.address_provider
+            user_token_account = address_provider.derive_user_token_account(
+                self.wallet.pubkey, token_info.mint
+            )
+            return await self.solana_client.get_token_account_balance(user_token_account)
+        except Exception as exc:
+            logger.warning(
+                f"Failed to fetch token balance for {token_info.mint}: {exc}"
+            )
+            return None
 
     async def _cleanup_resources(self) -> None:
         """Perform post-session cleanup."""

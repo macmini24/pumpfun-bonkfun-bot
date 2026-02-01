@@ -94,7 +94,7 @@ VALID_VALUES = {
     "trade.exit_strategy": ["time_based", "tp_sl", "manual"],
     "platform": ["pump_fun", "lets_bonk"],
     "mode": ["sniper", "copy_trader"],
-    "copy_trader.listener_type": ["blocks", "geyser"],
+    "copy_trader.listener_type": ["geyser"],
 }
 
 # Platform-specific listener compatibility
