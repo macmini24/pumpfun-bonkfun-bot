@@ -207,15 +207,18 @@ class CopyTrader:
         """Process queued trade signals sequentially."""
         _ = worker_id
         while True:
+            got_item = False
             try:
                 signal = await self._signal_queue.get()
+                got_item = True
                 await self._handle_trade_signal(signal)
             except asyncio.CancelledError:
                 break
             except Exception:
                 logger.exception("Error processing copy trade signal")
             finally:
-                self._signal_queue.task_done()
+                if got_item:
+                    self._signal_queue.task_done()
 
     async def _handle_trade_signal(self, signal: TradeSignal) -> None:
         """Handle a single trade signal."""
