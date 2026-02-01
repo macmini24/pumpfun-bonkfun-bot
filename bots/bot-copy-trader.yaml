@@ -25,6 +25,8 @@ copy_trader:
   buy_amount: 0.0001 # SOL amount to spend per copied buy
   fast_buy: true # Skip price RPC for fastest execution
   fast_buy_min_amount_out: 1 # Minimum token out in raw units
+  fast_sell: true # Skip price RPC for fastest execution
+  fast_sell_min_amount_out: 1 # Minimum SOL out in lamports
   copy_buys: true
   copy_sells: true
   dedupe_window_seconds: 30

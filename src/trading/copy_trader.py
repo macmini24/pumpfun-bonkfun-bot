@@ -52,6 +52,8 @@ class CopyTrader:
         queue_size: int = 100,
         fast_buy: bool = True,
         fast_buy_min_amount_out: int = 1,
+        fast_sell: bool = True,
+        fast_sell_min_amount_out: int = 1,
         worker_count: int = 2,
         positions_cache_path: str | None = None,
         positions_flush_interval: float = 1.0,
@@ -91,6 +93,8 @@ class CopyTrader:
         self.queue_size = queue_size
         self.fast_buy = fast_buy
         self.fast_buy_min_amount_out = max(1, fast_buy_min_amount_out)
+        self.fast_sell = fast_sell
+        self.fast_sell_min_amount_out = max(1, fast_sell_min_amount_out)
         self.worker_count = max(1, worker_count)
         self.trader_addresses = trader_addresses or []
         self.positions_flush_interval = positions_flush_interval
@@ -117,6 +121,8 @@ class CopyTrader:
             self.priority_fee_manager,
             sell_slippage,
             max_retries,
+            fast_sell=self.fast_sell,
+            fast_sell_min_amount_out=self.fast_sell_min_amount_out,
         )
 
         self.trade_listener = TradeListenerFactory.create_listener(
@@ -147,6 +153,14 @@ class CopyTrader:
         logger.info(f"Starting copy trader on {self.platform.value}")
         logger.info(f"Watching traders: {sorted(self.trader_addresses)}")
         logger.info(f"Copy buys: {self.copy_buys} | Copy sells: {self.copy_sells}")
+        if self.fast_buy:
+            logger.info(
+                f"Fast buy enabled (min out {self.fast_buy_min_amount_out} raw)"
+            )
+        if self.fast_sell:
+            logger.info(
+                f"Fast sell enabled (min out {self.fast_sell_min_amount_out} lamports)"
+            )
         if self.open_positions:
             logger.info(
                 f"Loaded {len(self.open_positions)} cached position(s) from disk"

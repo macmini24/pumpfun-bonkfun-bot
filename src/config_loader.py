@@ -93,6 +93,13 @@ CONFIG_VALIDATION_RULES = [
         "copy_trader.fast_buy_min_amount_out must be a positive integer",
     ),
     (
+        "copy_trader.fast_sell_min_amount_out",
+        int,
+        1,
+        float("inf"),
+        "copy_trader.fast_sell_min_amount_out must be a positive integer",
+    ),
+    (
         "copy_trader.worker_count",
         int,
         1,

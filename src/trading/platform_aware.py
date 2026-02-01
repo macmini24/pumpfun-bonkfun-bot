@@ -195,6 +195,8 @@ class PlatformAwareSeller(Trader):
         priority_fee_manager: PriorityFeeManager,
         slippage: float = 0.25,
         max_retries: int = 5,
+        fast_sell: bool = False,
+        fast_sell_min_amount_out: int = 1,
     ):
         """Initialize platform-aware token seller."""
         self.client = client
@@ -202,6 +204,8 @@ class PlatformAwareSeller(Trader):
         self.priority_fee_manager = priority_fee_manager
         self.slippage = slippage
         self.max_retries = max_retries
+        self.fast_sell = fast_sell
+        self.fast_sell_min_amount_out = max(1, fast_sell_min_amount_out)
 
     async def execute(self, token_info: TokenInfo) -> TradeResult:
         """Execute sell operation using platform-specific implementations."""
@@ -234,25 +238,37 @@ class PlatformAwareSeller(Trader):
                     error_message="No tokens to sell",
                 )
 
-            # Get pool address and current price using platform-agnostic method
-            pool_address = self._get_pool_address(token_info, address_provider)
-            token_price_sol = await curve_manager.calculate_price(pool_address)
+            if self.fast_sell:
+                token_price_sol = None
+                min_sol_output = self.fast_sell_min_amount_out
+                logger.info(
+                    "Fast sell enabled: skipping price RPC, "
+                    f"min out {min_sol_output} lamports"
+                )
+            else:
+                # Get pool address and current price using platform-agnostic method
+                pool_address = self._get_pool_address(token_info, address_provider)
+                token_price_sol = await curve_manager.calculate_price(pool_address)
 
-            logger.info(f"Price per Token: {token_price_sol:.8f} SOL")
+                logger.info(f"Price per Token: {token_price_sol:.8f} SOL")
 
-            # Calculate minimum SOL output with slippage
-            expected_sol_output = float(token_balance_decimal) * float(token_price_sol)
-            min_sol_output = int(
-                (expected_sol_output * (1 - self.slippage)) * LAMPORTS_PER_SOL
-            )
+                # Calculate minimum SOL output with slippage
+                expected_sol_output = float(token_balance_decimal) * float(
+                    token_price_sol
+                )
+                min_sol_output = int(
+                    (expected_sol_output * (1 - self.slippage)) * LAMPORTS_PER_SOL
+                )
 
-            logger.info(
-                f"Selling {token_balance_decimal} tokens on {token_info.platform.value}"
-            )
-            logger.info(f"Expected SOL output: {expected_sol_output:.8f} SOL")
-            logger.info(
-                f"Minimum SOL output (with {self.slippage * 100}% slippage): {min_sol_output / LAMPORTS_PER_SOL:.8f} SOL"
-            )
+                logger.info(
+                    f"Selling {token_balance_decimal} tokens on {token_info.platform.value}"
+                )
+                logger.info(f"Expected SOL output: {expected_sol_output:.8f} SOL")
+                logger.info(
+                    "Minimum SOL output (with "
+                    f"{self.slippage * 100}% slippage): "
+                    f"{min_sol_output / LAMPORTS_PER_SOL:.8f} SOL"
+                )
 
             # Build sell instructions using platform-specific builder
             instructions = await instruction_builder.build_sell_instruction(

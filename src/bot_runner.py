@@ -90,6 +90,8 @@ async def start_bot(config_path: str):
                 queue_size=copy_cfg.get("queue_size", 100),
                 fast_buy=copy_cfg.get("fast_buy", True),
                 fast_buy_min_amount_out=copy_cfg.get("fast_buy_min_amount_out", 1),
+                fast_sell=copy_cfg.get("fast_sell", True),
+                fast_sell_min_amount_out=copy_cfg.get("fast_sell_min_amount_out", 1),
                 worker_count=copy_cfg.get("worker_count", 2),
                 positions_cache_path=positions_cache_path,
                 positions_flush_interval=copy_cfg.get(

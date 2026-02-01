@@ -92,6 +92,8 @@ copy_trader:
   buy_amount: 0.0001
   fast_buy: true
   fast_buy_min_amount_out: 1
+  fast_sell: true
+  fast_sell_min_amount_out: 1
   copy_buys: true
   copy_sells: true
   worker_count: 2
