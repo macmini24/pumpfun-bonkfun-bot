@@ -6,10 +6,10 @@ from __future__ import annotations
 
 import asyncio
 import json
+import sys
 from pathlib import Path
 from time import monotonic
 
-import uvloop
 from solders.pubkey import Pubkey
 
 from cleanup.modes import (
@@ -27,9 +27,21 @@ from trading.base import TradeResult
 from trading.platform_aware import PlatformAwareBuyer, PlatformAwareSeller
 from utils.logger import get_logger
 
-asyncio.set_event_loop_policy(uvloop.EventLoopPolicy())
-
 logger = get_logger(__name__)
+
+
+def _configure_event_loop() -> None:
+    if sys.platform == "win32":
+        return
+    try:
+        import uvloop
+    except ImportError:
+        logger.debug("uvloop not available, using default loop")
+        return
+    asyncio.set_event_loop_policy(uvloop.EventLoopPolicy())
+
+
+_configure_event_loop()
 
 
 class CopyTrader:

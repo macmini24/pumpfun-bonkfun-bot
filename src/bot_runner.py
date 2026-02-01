@@ -1,12 +1,22 @@
 import asyncio
 import logging
 import multiprocessing
+import sys
 from datetime import datetime
 from pathlib import Path
 
-import uvloop
+def _configure_event_loop() -> None:
+    if sys.platform == "win32":
+        return
+    try:
+        import uvloop
+    except ImportError:
+        logging.getLogger(__name__).debug("uvloop not available, using default loop")
+        return
+    asyncio.set_event_loop_policy(uvloop.EventLoopPolicy())
 
-asyncio.set_event_loop_policy(uvloop.EventLoopPolicy())
+
+_configure_event_loop()
 
 from config_loader import (
     get_platform_from_config,
