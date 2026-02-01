@@ -8,11 +8,12 @@ from typing import Any
 
 import yaml
 from dotenv import load_dotenv
+from solders.pubkey import Pubkey
 
 from interfaces.core import Platform
 
 # Existing validation rules (keeping all existing ones)
-REQUIRED_FIELDS = [
+BASE_REQUIRED_FIELDS = [
     "name",
     "rpc_endpoint",
     "wss_endpoint",
@@ -20,8 +21,16 @@ REQUIRED_FIELDS = [
     "trade.buy_amount",
     "trade.buy_slippage",
     "trade.sell_slippage",
+]
+
+SNIPER_REQUIRED_FIELDS = [
     "filters.listener_type",
     "filters.max_token_age",
+]
+
+COPY_TRADER_REQUIRED_FIELDS = [
+    "copy_trader.listener_type",
+    "copy_trader.trader_addresses",
 ]
 
 CONFIG_VALIDATION_RULES = [
@@ -69,6 +78,13 @@ CONFIG_VALIDATION_RULES = [
         float("inf"),
         "filters.max_token_age must be a non-negative number",
     ),
+    (
+        "copy_trader.buy_amount",
+        (int, float),
+        0,
+        float("inf"),
+        "copy_trader.buy_amount must be a positive number",
+    ),
 ]
 
 # Valid values for enum-like fields
@@ -77,6 +93,8 @@ VALID_VALUES = {
     "cleanup.mode": ["disabled", "on_fail", "after_sell", "post_session"],
     "trade.exit_strategy": ["time_based", "tp_sl", "manual"],
     "platform": ["pump_fun", "lets_bonk"],
+    "mode": ["sniper", "copy_trader"],
+    "copy_trader.listener_type": ["blocks", "geyser"],
 }
 
 # Platform-specific listener compatibility
@@ -107,6 +125,10 @@ def load_bot_config(path: str) -> dict:
     if "platform" not in config:
         config["platform"] = "pump_fun"
 
+    # Set default mode if not specified (backward compatibility)
+    if "mode" not in config:
+        config["mode"] = "sniper"
+
     validate_config(config)
     return config
 
@@ -127,6 +149,15 @@ def resolve_env_vars(config: dict) -> None:
         for k, v in d.items():
             if isinstance(v, dict):
                 resolve_all(v)
+            elif isinstance(v, list):
+                resolved_items = []
+                for item in v:
+                    if isinstance(item, dict):
+                        resolve_all(item)
+                        resolved_items.append(item)
+                    else:
+                        resolved_items.append(resolve_env(item))
+                d[k] = resolved_items
             else:
                 d[k] = resolve_env(v)
 
@@ -144,10 +175,43 @@ def get_nested_value(config: dict, path: str) -> Any:
     return value
 
 
+def validate_trader_addresses(addresses: Any) -> None:
+    """Validate trader address list for copy trading.
+
+    Args:
+        addresses: Value expected to be a list of base58 strings
+
+    Raises:
+        ValueError: If the list is empty or contains invalid addresses
+    """
+    if not isinstance(addresses, list) or not addresses:
+        raise ValueError("copy_trader.trader_addresses must be a non-empty list")
+
+    for address in addresses:
+        if not isinstance(address, str) or not address:
+            raise ValueError("copy_trader.trader_addresses must contain strings")
+        try:
+            Pubkey.from_string(address)
+        except Exception as exc:
+            raise ValueError(
+                f"Invalid trader address in copy_trader.trader_addresses: {address}"
+            ) from exc
+
+
 def validate_config(config: dict) -> None:
     """Validate the configuration against defined rules with platform support."""
+    mode = config.get("mode", "sniper")
+    if mode not in VALID_VALUES["mode"]:
+        raise ValueError(f"mode must be one of {VALID_VALUES['mode']}")
+
+    required_fields = list(BASE_REQUIRED_FIELDS)
+    if mode == "copy_trader":
+        required_fields.extend(COPY_TRADER_REQUIRED_FIELDS)
+    else:
+        required_fields.extend(SNIPER_REQUIRED_FIELDS)
+
     # Validate required fields
-    for field in REQUIRED_FIELDS:
+    for field in required_fields:
         get_nested_value(config, field)
 
     # Validate config rules
@@ -200,6 +264,10 @@ def validate_config(config: dict) -> None:
             )
         raise
 
+    if mode == "copy_trader":
+        trader_addresses = get_nested_value(config, "copy_trader.trader_addresses")
+        validate_trader_addresses(trader_addresses)
+
 
 def validate_platform_config(config: dict, platform: Platform) -> None:
     """Validate platform-specific configuration requirements."""
@@ -217,7 +285,13 @@ def validate_platform_config(config: dict, platform: Platform) -> None:
 
     # Validate listener compatibility with platform
     try:
-        listener_type = get_nested_value(config, "filters.listener_type")
+        mode = config.get("mode", "sniper")
+        listener_path = (
+            "copy_trader.listener_type"
+            if mode == "copy_trader"
+            else "filters.listener_type"
+        )
+        listener_type = get_nested_value(config, listener_path)
         compatible_listeners = PLATFORM_LISTENER_COMPATIBILITY.get(platform, [])
 
         if listener_type not in compatible_listeners:
@@ -299,17 +373,29 @@ def get_platform_specific_required_config(platform: Platform) -> list[str]:
 def print_config_summary(config: dict) -> None:
     """Print a summary of the loaded configuration with platform info."""
     platform_str = config.get("platform", "pump_fun")
+    mode = config.get("mode", "sniper")
 
     print(f"Bot name: {config.get('name', 'unnamed')}")
+    print(f"Mode: {mode}")
     print(f"Platform: {platform_str}")
-    print(
-        f"Listener type: {config.get('filters', {}).get('listener_type', 'not configured')}"
-    )
+    if mode == "copy_trader":
+        copy_listener = config.get("copy_trader", {}).get("listener_type", "unknown")
+        print(f"Copy trade listener: {copy_listener}")
+        traders = config.get("copy_trader", {}).get("trader_addresses", [])
+        print(f"Watched traders: {len(traders)}")
+    else:
+        print(
+            f"Listener type: {config.get('filters', {}).get('listener_type', 'not configured')}"
+        )
 
     # Validate platform-listener combination
     try:
         platform = Platform(platform_str)
-        listener_type = config.get("filters", {}).get("listener_type")
+        if mode == "copy_trader":
+            listener_type = config.get("copy_trader", {}).get("listener_type")
+        else:
+            listener_type = config.get("filters", {}).get("listener_type")
+
         if listener_type and not validate_platform_listener_combination(
             platform, listener_type
         ):
@@ -361,7 +447,15 @@ def validate_all_platform_configs(config_dir: str = "bots") -> dict[str, Any]:
         try:
             config = load_bot_config(config_file)
             platform = get_platform_from_config(config)
-            listener_type = config.get("filters", {}).get("listener_type", "unknown")
+            mode = config.get("mode", "sniper")
+            if mode == "copy_trader":
+                listener_type = config.get("copy_trader", {}).get(
+                    "listener_type", "unknown"
+                )
+            else:
+                listener_type = config.get("filters", {}).get(
+                    "listener_type", "unknown"
+                )
 
             results["valid_configs"].append(
                 {

@@ -71,6 +71,28 @@ Edit `.yaml` templates in the `bots/` directory. Each file is a separate instanc
 
 For example, to run the pump.fun bot, set `platform: "pump_fun"`; to run the bonk.fun bot, set `platform: "lets_bonk"`.
 
+### Copy trading mode
+Copy trading mirrors buy/sell actions from specific wallets.
+
+1. Use the `bots/bot-copy-trader.yaml` template.
+2. Set `mode: "copy_trader"` and add your `copy_trader.trader_addresses`.
+3. Choose a listener type:
+   - `blocks` (default): no extra RPC calls, works with most providers
+   - `geyser`: lowest latency, requires a Geyser endpoint
+
+Example:
+```yaml
+mode: "copy_trader"
+copy_trader:
+  listener_type: "blocks"
+  trader_addresses:
+    - "REPLACE_WITH_TRADER_ADDRESS_1"
+    - "REPLACE_WITH_TRADER_ADDRESS_2"
+  buy_amount: 0.0001
+  copy_buys: true
+  copy_sells: true
+```
+
 #### 4️⃣ Install the bot as a package
 ```bash
 uv pip install -e .
@@ -197,7 +219,7 @@ As of April 30, 2025, all changes from **refactored/main-v2** are merged into th
 | | PumpSwap migration listening | pump_fun migrated to their own DEX — [PumpSwap](https://x.com/pumpdotfun/status/1902762309950292010), so we need to FAFO with that instead of Raydium (and attempt `logSubscribe` implementation) | ✅ |
 | **Stage 3: Trading experience** | Take profit/stop loss | Implement take profit, stop loss exit strategies | ✅ |
 | | Market cap-based selling | Sell when a specific market cap has been reached | Not started |
-| | Copy trading | Enable copy trading functionality | Not started |
+| | Copy trading | Enable copy trading functionality | ✅ |
 | | Token analysis script | Script for basic token analysis (market cap, creator investment, liquidity, token age) | Not started |
 | | Archive node integration | Use Solana archive nodes for historical analysis (accounts that consistently print tokens, average mint to raydium time) | Not started |
 | | Geyser implementation | Leverage Solana Geyser for real-time data stream processing | ✅ |
