@@ -412,10 +412,13 @@ class IDLParser:
         type_def = self.types[type_name]["type"]
 
         if type_def["kind"] == "struct":
-            return sum(
-                self._calculate_type_min_size(field["type"])
-                for field in type_def["fields"]
-            )
+            size = 0
+            for field in type_def["fields"]:
+                if isinstance(field, str):
+                    size += self._calculate_type_min_size(field)
+                else:
+                    size += self._calculate_type_min_size(field["type"])
+            return size
 
         if type_def["kind"] == "enum":
             # The size of an enum is its discriminator plus the size of its LARGEST variant,
@@ -495,9 +498,13 @@ class IDLParser:
 
         if type_def["kind"] == "struct":
             struct_data = {}
-            for field in type_def["fields"]:
-                value, offset = self._decode_type(data, offset, field["type"])
-                struct_data[field["name"]] = value
+            for idx, field in enumerate(type_def["fields"]):
+                if isinstance(field, str):
+                    value, offset = self._decode_type(data, offset, field)
+                    struct_data[f"field_{idx}"] = value
+                else:
+                    value, offset = self._decode_type(data, offset, field["type"])
+                    struct_data[field["name"]] = value
             return struct_data, offset
 
         if type_def["kind"] == "enum":

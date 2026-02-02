@@ -152,46 +152,75 @@ class CopyTradeGeyserListener(BaseTradeListener):
 
             tx = update.transaction.transaction.transaction
             msg = getattr(tx, "message", None)
+            meta = update.transaction.transaction.meta
             if msg is None:
                 return trade_signals
 
             account_keys = [bytes(key) for key in msg.account_keys]
+            if meta:
+                account_keys.extend(meta.loaded_writable_addresses)
+                account_keys.extend(meta.loaded_readonly_addresses)
             signature = self._extract_signature(update)
 
-            for ix in msg.instructions:
-                program_idx = ix.program_id_index
-                if program_idx >= len(msg.account_keys):
-                    continue
+            trade_signals.extend(
+                self._parse_trade_instructions(msg.instructions, account_keys, signature)
+            )
 
-                program_id = Pubkey.from_bytes(msg.account_keys[program_idx])
-                parser = self.program_id_to_parser.get(str(program_id))
-                if not parser:
-                    continue
-
-                parsed = parser.parse_instruction(
-                    ix.data, list(ix.accounts), account_keys
-                )
-                if not parsed:
-                    continue
-
-                if not self.is_trader_watched(parsed.trader):
-                    continue
-
-                trade_signals.append(
-                    TradeSignal(
-                        side=parsed.side,
-                        token_info=parsed.token_info,
-                        trader=parsed.trader,
-                        platform=parsed.platform,
-                        signature=signature,
+            if meta and not meta.inner_instructions_none:
+                for inner in meta.inner_instructions:
+                    trade_signals.extend(
+                        self._parse_trade_instructions(
+                            inner.instructions, account_keys, signature
+                        )
                     )
-                )
 
             return trade_signals
 
         except Exception:
             logger.exception("Error processing Geyser update")
             return trade_signals
+
+    def _parse_trade_instructions(
+        self,
+        instructions: list,
+        account_keys: list[bytes],
+        signature: str | None,
+    ) -> list[TradeSignal]:
+        """Parse a list of instructions for trade signals."""
+        signals: list[TradeSignal] = []
+        for ix in instructions:
+            program_idx = ix.program_id_index
+            if program_idx >= len(account_keys):
+                continue
+
+            program_id = Pubkey.from_bytes(account_keys[program_idx])
+            parser = self.program_id_to_parser.get(str(program_id))
+            if not parser:
+                continue
+
+            accounts = (
+                list(ix.accounts)
+                if isinstance(ix.accounts, (bytes, bytearray))
+                else list(ix.accounts)
+            )
+            parsed = parser.parse_instruction(bytes(ix.data), accounts, account_keys)
+            if not parsed:
+                continue
+
+            if not self.is_trader_watched(parsed.trader):
+                continue
+
+            signals.append(
+                TradeSignal(
+                    side=parsed.side,
+                    token_info=parsed.token_info,
+                    trader=parsed.trader,
+                    platform=parsed.platform,
+                    signature=signature,
+                )
+            )
+
+        return signals
 
     def _extract_signature(self, update) -> str | None:
         """Extract transaction signature from a Geyser update."""
