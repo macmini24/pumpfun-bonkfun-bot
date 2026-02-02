@@ -632,6 +632,8 @@ class UniversalTrader:
             return token_info.bonding_curve
         elif hasattr(token_info, "pool_state") and token_info.pool_state:
             return token_info.pool_state
+        elif token_info.additional_data and token_info.additional_data.get("pool"):
+            return token_info.additional_data["pool"]
         else:
             # Fallback to deriving the address using platform provider
             return address_provider.derive_pool_address(token_info.mint)

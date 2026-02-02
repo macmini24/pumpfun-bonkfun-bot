@@ -234,6 +234,26 @@ class PlatformFactory:
         except ImportError as e:
             print(f"Warning: Could not register LetsBonk platform: {e}")
 
+        # Import and register PumpSwap platform
+        try:
+            from platforms.pumpswap import (
+                PumpSwapAddressProvider,
+                PumpSwapCurveManager,
+                PumpSwapEventParser,
+                PumpSwapInstructionBuilder,
+            )
+
+            self.registry.register_platform(
+                Platform.PUMP_SWAP,
+                PumpSwapAddressProvider,
+                PumpSwapInstructionBuilder,
+                PumpSwapCurveManager,
+                PumpSwapEventParser,
+            )
+
+        except ImportError as e:
+            print(f"Warning: Could not register PumpSwap platform: {e}")
+
     def create_for_platform(
         self, platform: Platform, client: SolanaClient, **config: Any
     ) -> PlatformImplementations:

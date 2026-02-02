@@ -52,6 +52,12 @@ PLATFORM_TRADE_CONFIGS: dict[Platform, TradeInstructionConfig] = {
         trader_account="payer",
         mint_account="base_token_mint",
     ),
+    Platform.PUMP_SWAP: TradeInstructionConfig(
+        buy_instruction="buy",
+        sell_instruction="sell",
+        trader_account="user",
+        mint_account="base_mint",
+    ),
 }
 
 
@@ -184,6 +190,74 @@ class TradeInstructionParser:
                 creator=trader_key,
             )
 
+        if self.platform == Platform.PUMP_SWAP:
+            pool = self._to_pubkey(accounts_map.get("pool"))
+            base_mint = self._to_pubkey(accounts_map.get("base_mint"))
+            quote_mint = self._to_pubkey(accounts_map.get("quote_mint"))
+            pool_base = self._to_pubkey(accounts_map.get("pool_base_token_account"))
+            pool_quote = self._to_pubkey(accounts_map.get("pool_quote_token_account"))
+            user_base = self._to_pubkey(accounts_map.get("user_base_token_account"))
+            user_quote = self._to_pubkey(accounts_map.get("user_quote_token_account"))
+            protocol_fee_recipient = self._to_pubkey(
+                accounts_map.get("protocol_fee_recipient")
+            )
+            protocol_fee_recipient_token_account = self._to_pubkey(
+                accounts_map.get("protocol_fee_recipient_token_account")
+            )
+            event_authority = self._to_pubkey(accounts_map.get("event_authority"))
+            global_config = self._to_pubkey(accounts_map.get("global_config"))
+            coin_creator_vault_ata = self._to_pubkey(
+                accounts_map.get("coin_creator_vault_ata")
+            )
+            coin_creator_vault_authority = self._to_pubkey(
+                accounts_map.get("coin_creator_vault_authority")
+            )
+            global_volume_accumulator = self._to_pubkey(
+                accounts_map.get("global_volume_accumulator")
+            )
+            user_volume_accumulator = self._to_pubkey(
+                accounts_map.get("user_volume_accumulator")
+            )
+            fee_config = self._to_pubkey(accounts_map.get("fee_config"))
+            fee_program = self._to_pubkey(accounts_map.get("fee_program"))
+
+            additional_data = {
+                "pool": pool,
+                "base_mint": base_mint,
+                "quote_mint": quote_mint,
+                "pool_base_token_account": pool_base,
+                "pool_quote_token_account": pool_quote,
+                "user_base_token_account": user_base,
+                "user_quote_token_account": user_quote,
+                "protocol_fee_recipient": protocol_fee_recipient,
+                "protocol_fee_recipient_token_account": protocol_fee_recipient_token_account,
+                "event_authority": event_authority,
+                "global_config": global_config,
+                "coin_creator_vault_ata": coin_creator_vault_ata,
+                "coin_creator_vault_authority": coin_creator_vault_authority,
+                "global_volume_accumulator": global_volume_accumulator,
+                "user_volume_accumulator": user_volume_accumulator,
+                "fee_config": fee_config,
+                "fee_program": fee_program,
+            }
+            additional_data = {
+                key: value for key, value in additional_data.items() if value is not None
+            }
+
+            return TokenInfo(
+                name=label,
+                symbol=label,
+                uri="",
+                mint=base_mint or mint,
+                platform=self.platform,
+                pool_state=pool,
+                base_vault=pool_base,
+                quote_vault=pool_quote,
+                user=trader_key,
+                creator=trader_key,
+                additional_data=additional_data,
+            )
+
         return None
 
     def _resolve_program_id(self, platform: Platform) -> Pubkey:
@@ -199,6 +273,10 @@ class TradeInstructionParser:
             return PumpFunAddressProvider().program_id
         if platform == Platform.LETS_BONK:
             return LetsBonkAddressProvider().program_id
+        if platform == Platform.PUMP_SWAP:
+            from platforms.pumpswap.address_provider import PumpSwapAddressProvider
+
+            return PumpSwapAddressProvider().program_id
         raise ValueError(f"Unsupported platform for program ID lookup: {platform}")
 
     def _to_pubkey(self, value: Any) -> Pubkey | None:

@@ -11,8 +11,8 @@ private_key: "${SOLANA_PRIVATE_KEY}"
 enabled: false
 separate_process: true
 
-# Options: "pump_fun" (default), "lets_bonk"
-platform: "pump_fun"
+# Options: "pump_fun" (bonding curve), "pump_swap" (AMM), "lets_bonk"
+platform: "pump_swap"
 mode: "copy_trader"
 
 # Copy trading settings

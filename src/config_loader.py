@@ -120,7 +120,7 @@ VALID_VALUES = {
     "filters.listener_type": ["logs", "blocks", "geyser", "pumpportal"],
     "cleanup.mode": ["disabled", "on_fail", "after_sell", "post_session"],
     "trade.exit_strategy": ["time_based", "tp_sl", "manual"],
-    "platform": ["pump_fun", "lets_bonk"],
+    "platform": ["pump_fun", "lets_bonk", "pump_swap"],
     "mode": ["sniper", "copy_trader"],
     "copy_trader.listener_type": ["blocks", "geyser"],
 }
@@ -129,6 +129,7 @@ VALID_VALUES = {
 PLATFORM_LISTENER_COMPATIBILITY = {
     Platform.PUMP_FUN: ["logs", "blocks", "geyser", "pumpportal"],
     Platform.LETS_BONK: ["blocks", "geyser", "pumpportal"],
+    Platform.PUMP_SWAP: ["blocks", "geyser"],
 }
 
 

@@ -181,6 +181,14 @@ class PlatformAwareBuyer(Trader):
             if hasattr(token_info, "pool_state") and token_info.pool_state:
                 return token_info.pool_state
 
+        if token_info.platform == Platform.PUMP_SWAP:
+            if token_info.pool_state:
+                return token_info.pool_state
+            additional = token_info.additional_data or {}
+            pool = additional.get("pool")
+            if pool:
+                return pool
+
         # Fallback to deriving the address using platform provider
         return address_provider.derive_pool_address(token_info.mint)
 
@@ -330,6 +338,14 @@ class PlatformAwareSeller(Trader):
         elif token_info.platform == Platform.LETS_BONK:
             if hasattr(token_info, "pool_state") and token_info.pool_state:
                 return token_info.pool_state
+
+        if token_info.platform == Platform.PUMP_SWAP:
+            if token_info.pool_state:
+                return token_info.pool_state
+            additional = token_info.additional_data or {}
+            pool = additional.get("pool")
+            if pool:
+                return pool
 
         # Fallback to deriving the address using platform provider
         return address_provider.derive_pool_address(token_info.mint)

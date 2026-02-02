@@ -19,6 +19,7 @@ class Platform(Enum):
 
     PUMP_FUN = "pump_fun"
     LETS_BONK = "lets_bonk"
+    PUMP_SWAP = "pump_swap"
 
 
 @dataclass
